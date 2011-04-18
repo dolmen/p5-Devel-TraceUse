@@ -314,6 +314,8 @@ chromatic, C<< <chromatic at wgz.org> >>
 
 Philippe Bruhat, C<< <book at cpan.org> >>
 
+Olivier MenguE<eacute>, C<< <dolmen@cpan.org> >>
+
 =head2 Contributors
 
 C<hidecore> option contributed by David Leadbeater, C<< <dgl@dgl.cx> >>.
