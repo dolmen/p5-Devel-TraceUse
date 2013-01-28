@@ -18,6 +18,7 @@ my $root = (caller)[1];
 my %used;
 my %loaded;
 my %reported;
+my %via;
 my $rank = 0;
 my $quiet = 1;
 my $output_fh;
@@ -37,6 +38,13 @@ sub import {
 			$hide_core = numify( $1 ? $1 : $] );
 		} elsif (/^output:(.*)$/) {
 			open $output_fh, '>', $1 or die "can't open $1: $!";
+		} elsif (/^(base|parent|Module::Runtime|Class::Load)/s) {
+			if (index($1, ':') > 0) {
+				(my $m = $1) =~ s/::/_/g;
+				&{"wrap_$m"}();
+			} else {
+				&{"wrap_$1_pm"}();
+			}
 		} else {
 			die "Unknown argument to $class: $_\n";
 		}
@@ -45,6 +53,88 @@ sub import {
 
 my @caller_info = qw( package filepath line subroutine hasargs
 	wantarray evaltext is_require hints bitmask hinthash );
+
+
+sub wrap_base_pm
+{
+	return if exists $via{base};
+	$via{base} = {};
+
+	require base;
+
+	my $orig = \&base::import;
+	*base::import = sub {
+		my %caller = ( via => 'base.pm' );
+		@caller{@caller_info} = caller(0);
+		foreach my $module (@_[1..$#_]) {
+			# Skip if it is already loaded
+			(my $source = $module) =~ s{::|'}{/}g;
+			next if exists $INC{"$source.pm"};
+
+			$via{base}{$module} = { %caller };
+		}
+		goto &$orig;
+	};
+}
+
+sub wrap_parent_pm
+{
+	return if exists $via{parent};
+	$via{parent} = {};
+
+	require parent;
+
+	my $orig = \&parent::import;
+	*parent::import = sub {
+		unless ($_[1] eq '-norequire') {
+			my %caller = ( via => 'parent.pm' );
+			@caller{@caller_info} = caller(0);
+			foreach my $module (@_[1..$#_]) {
+				# Skip if it is already loaded
+				(my $source = $module) =~ s{::|'}{/}g;
+				next if exists $INC{"$source.pm"};
+
+				$via{parent}{$module} = { %caller };
+			}
+		}
+		goto &$orig;
+	};
+}
+
+sub wrap_Module_Runtime
+{
+	return if exists $via{'Module::Runtime'};
+	$via{'Module::Runtime'} = {};
+
+	require Module::Runtime;
+
+	my $orig = \&Module::Runtime::require_module;
+	*Module::Runtime::require_module = sub ($) {
+		my $module = $_[0];
+		# Skip if it is already loaded
+		(my $source = $module) =~ s{::|'}{/}g;
+		unless (exists $INC{"$source.pm"}) {
+			my $call_level = 0;
+			$call_level++ while (scalar caller($call_level)) =~ /^(?:Module::Runtime|Class::Load|Try::Tiny)$/s;
+			(my $call_src = caller($call_level-1)) =~ s{::}{/}g;
+			my %caller = ( via => "$call_src.pm" );
+			@caller{@caller_info} = caller($call_level);
+			$via{'Module::Runtime'}{$module} = \%caller;
+		}
+		goto &$orig;
+	};
+}
+
+sub wrap_Class_Load
+{
+	return if exists $via{'Class::Load'};
+	$via{'Class::Load'} = {};
+
+	# We must load M::R first as it is then imported into Class::Load
+	wrap_Module_Runtime;
+
+	require Class::Load;
+}
 
 # Keys used in the data structure:
 # - filename: parameter given to use/require
@@ -78,8 +168,15 @@ sub trace_use
 	};
 
 	# info about the loading module
-	my $caller = $info->{caller} = {};
+	my $caller = {};
 	@{$caller}{@caller_info} = caller(0);
+
+	if (my $via = delete $via{$caller->{package}}{$module}) {
+	    $caller = $via;
+	}
+
+	$info->{caller} = $caller;
+	#print "* ", join("/", @{$caller}{@caller_info}), "\n";
 
 	# try to compute a "filename" (as received by require)
 	$caller->{filestring} = $caller->{filename} = $caller->{filepath};
@@ -295,6 +392,38 @@ at C<use> time:
 
 =over 4
 
+=item C<base>
+
+Load C<L<base>.pm> in advance and wrap its L<import> to make it transparent.
+Any module loading provoqued through C<base.pm> will be marked with
+"C<via base.pm>".
+
+=item C<parent>
+
+Load C<L<parent>.pm> in advance and wrap its L<import> to make it transparent.
+Any module loading provoqued through C<base.pm> will be marked with
+"C<via parent.pm>".
+
+=item C<Module::Runtime>
+
+Load L<Module::Runtime> in advance and wrap L<Module::Runtime>C<::require_module>
+to make C<Class::Load> and C<Module::Runtime> transparent.
+
+Any module loading provoqued through C<Class::Load> will be marked with
+"C<via Class/Load.pm>".
+Any module loading provoqued through C<Module::Runtime> will be marked with
+"C<via Module/Runtime.pm>".
+
+=item C<Class::Load>
+
+Load L<Class::Load> in advance and wrap L<Module::Runtime>C<::require_module>
+to make C<Class::Load> and C<Module::Runtime> transparent.
+
+Any module loading provoqued through C<Class::Load> will be marked with
+"C<via Class/Load.pm>".
+Any module loading provoqued through C<Module::Runtime> will be marked with
+"C<via Module/Runtime.pm>".
+
 =item C<hidecore>
 
   $ perl -d:TraceUse=hidecore your_program.pl
@@ -340,6 +469,9 @@ C<hidecore> option contributed by David Leadbeater, C<< <dgl@dgl.cx> >>.
 C<output> option contributed by Olivier Mengué (C<< <dolmen@cpan.org> >>).
 
 C<perl -c> support contributed by Olivier Mengué (C<< <dolmen@cpan.org> >>).
+
+C<base>, C<parent>, C<Module::Runtime>, C<Class::Load> options contributed
+by Olivier Mengué (C<< <dolmen@cpan.org> >>).
 
 =head1 BUGS
 
