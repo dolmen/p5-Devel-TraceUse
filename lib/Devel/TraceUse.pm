@@ -118,6 +118,7 @@ sub show_trace_visitor
 	my $message = sprintf( '%4s.', $mod->{rank} ) . '  ' x $pos;
 	$message .= "$mod->{module}";
 	my $version = ${"$mod->{module}\::VERSION"};
+	$version = undef if defined $version && $version eq '-1, set by base.pm';
 	$message .= defined $version ? " $version," : ',';
 	$message .= " $caller->{filename}"
 		if defined $caller->{filename};
