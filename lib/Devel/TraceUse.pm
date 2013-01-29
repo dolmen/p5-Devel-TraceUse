@@ -128,6 +128,8 @@ sub show_trace_visitor
 		if $mod->{eval};
 	$message .= " [$caller->{package}]"
 		if $caller->{package} ne $caller->{filepackage};
+	$message .= ", via $caller->{via}"
+		if exists $caller->{via};
 	$message .= " (FAILED)"
 		if !exists $INC{$mod->{filename}};
 
