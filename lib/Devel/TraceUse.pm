@@ -21,6 +21,15 @@ my %reported;
 my $rank = 0;
 my $quiet = 1;
 my $output_fh;
+my %hide_proxies;
+
+my %KNOWN_PROXIES = (
+    (map { ($_ => [ 'import' ]) } qw(base parent relative)),
+    'Module::Runtime' => [ 'require_module' ],
+    'Class::Load' => [ qw(load_class try_load_class load_optional_class) ],
+    'Class::MOP' => [ 'load_class' ],
+    'Moose::Meta::Class' => [ qw(superclasses load_class) ],
+);
 
 # Hide core modules (for the specified version)?
 my $hide_core = 0;
@@ -35,6 +44,19 @@ sub import {
 	for(@_) {
 		if(/^hidecore(?::(.*))?/) {
 			$hide_core = numify( $1 ? $1 : $] );
+		} elsif(/^hideprox(?:ys?|ies)(?:([:+])(.+))?/s) {
+			my @proxies;
+			@proxies = keys %KNOWN_PROXIES if !defined($1) || $1 eq '+';
+			push @proxies, split m{ |/}, $2 if $2;
+			%hide_proxies = map {
+				exists $KNOWN_PROXIES{$_}
+				? do {
+					my $p = $_;
+					(map { ("${p}::$_" => undef) }
+						@{$KNOWN_PROXIES{$p}})
+				} : ($_ => undef)
+			} @proxies;
+			#print join("\n", keys %hide_proxies), "\n";
 		} elsif (/^output:(.*)$/) {
 			open $output_fh, '>', $1 or die "can't open $1: $!";
 		} else {
@@ -78,8 +100,21 @@ sub trace_use
 	};
 
 	# info about the loading module
-	my $caller = $info->{caller} = {};
-	@{$caller}{@caller_info} = caller(0);
+	$info->{caller} = my $caller = {};
+	my $proxy_level = 0;
+	my $call_level = 0;
+	while (1) {
+		my @caller = caller($call_level++);
+		last unless @caller;
+		# Stop when we reach an enclosing require
+		last if $caller[7] || (substr($caller[3], -7) eq '::BEGIN');
+		if (exists $hide_proxies{$caller[3]}) {
+			$proxy_level = $call_level-1;
+			$caller->{via} = $caller[3];
+		}
+	}
+
+	@{$caller}{@caller_info} = caller($proxy_level);
 
 	# try to compute a "filename" (as received by require)
 	$caller->{filestring} = $caller->{filename} = $caller->{filepath};
@@ -313,6 +348,49 @@ I<x.yyyzzz> (decimal). For example, the strings C<5.8.1>, C<5.08.01>,
 C<5.008.001> and C<5.008001> will all represent Perl version 5.8.1,
 and C<5.5.30>, C<5.005_03> will all represent Perl version 5.005_03.
 
+=item C<hideproxies[:E<lt>I<pkg1>E<gt>[/E<lt>I<pkg2>E<gt>[...]]>
+
+  $ perl -d:TraceUse=hideproxies your_program.pl
+  $ perl -d:TraceUse=hideproxies:base/Module::Runtime/parent your_program.pl
+  $ perl -d:TraceUse=hideproxies+MyModule::my_sub your_program.pl
+
+Hide the given proxy modules or subs from the require stack.
+
+If you use this option without a module list, the default list contains:
+
+=over 4
+
+=item *
+
+L<base>
+
+=item *
+
+L<parent>
+
+=item *
+
+L<relative>
+
+=item *
+
+L<Class::Load>
+
+=item *
+
+L<Module::Runtime>
+
+=back
+
+If you use your own list of proxies, you must specify both the package and the
+sub name to exclude.
+
+To use both the default list and the default list, use a "C<+>" instead of
+"C<:>" just after "C<hideproxies>".
+
+Any module loading provoqued through C<base.pm> will be marked with
+C<, via I<module>::I<sub>>.
+
 =item C<output>
 
   $ perl -d:TraceUse=output=out.txt your_program.pl
@@ -340,6 +418,9 @@ C<hidecore> option contributed by David Leadbeater, C<< <dgl@dgl.cx> >>.
 C<output> option contributed by Olivier Mengué (C<< <dolmen@cpan.org> >>).
 
 C<perl -c> support contributed by Olivier Mengué (C<< <dolmen@cpan.org> >>).
+
+C<hideproxies> options contributed
+by Olivier Mengué (C<< <dolmen@cpan.org> >>).
 
 =head1 BUGS
 
