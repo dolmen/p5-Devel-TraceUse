@@ -85,6 +85,10 @@ sub trace_use
 	my $caller = $info->{caller} = {};
 	@{$caller}{@caller_info} = caller(0);
 
+	my $lvl = 1; my $sub = '(eval)';
+	$sub = (caller($lvl++))[3] while $sub eq '(eval)';
+	$caller->{subroutine} = $sub;
+
 	# try to compute a "filename" (as received by require)
 	$caller->{filestring} = $caller->{filename} = $caller->{filepath};
 
@@ -137,7 +141,9 @@ sub show_trace_visitor
 		if !exists $INC{$mod->{filename}};
 
 	if ($report_proxies && $caller->{filename} && $caller->{line}) {
-		$loaders{$caller->{filename}.' '.$caller->{line}}++;
+		my $key = $caller->{filename}.' '.$caller->{line};
+		$loaders{$key} ||= [ 0, $caller->{subroutine} ];
+		$loaders{$key}[0]++;
 	}
 
 	$output_cb->($message, @args);
@@ -183,8 +189,8 @@ sub dump_proxies
 	my $output = shift;
 
 	my @hot_loaders =
-		sort { $loaders{$b} <=> $loaders{$a} }
-		grep { $loaders{$_} > 1 }
+		sort { $loaders{$b}[0] <=> $loaders{$a}[0] }
+		grep { $loaders{$_}[0] > 1 }
 		keys %loaders;
 
 	return unless @hot_loaders;
@@ -192,24 +198,10 @@ sub dump_proxies
 	$output->("Proxies:");
 
 	for my $loader (@hot_loaders) {
-		my $sub;
 		my ($filename, $linenum) = split / /, $loader;
-		for my $dir (@INC) {
-			if (-e "$dir/$filename") {
-				open my $src, '<', "$dir/$filename";
-				my $s;
-				while (<$src>) {
-					$s = $1 if /^sub (\w+)/;
-					if ($. == $linenum) {
-						$sub = $s;
-						last
-					}
-				}
-				last
-			}
-		}
+		my $sub = $loaders{$loader}[1];
 		$output->(sprintf("%4d %s line %d%s",
-				$loaders{$loader},
+				$loaders{$loader}[0],
 				$filename, $linenum,
 					(defined($sub) ? ", sub $sub" : '')));
 	}
