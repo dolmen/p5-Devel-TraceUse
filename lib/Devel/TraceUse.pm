@@ -85,8 +85,8 @@ sub trace_use
 	my $caller = $info->{caller} = {};
 	@{$caller}{@caller_info} = caller(0);
 
-	my $lvl = 1; my $sub = '(eval)';
-	$sub = (caller($lvl++))[3] while $sub eq '(eval)';
+	my $lvl = 1; my $sub = '';
+	$sub = (caller($lvl++))[3] while index($sub, '::') < 1;
 	$caller->{subroutine} = $sub;
 
 	# try to compute a "filename" (as received by require)
