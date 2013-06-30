@@ -143,9 +143,29 @@ sub show_trace_visitor
     $output_cb->($message, @args);
 }
 
+# A visitor that outputs in Newick format
+# http://en.wikipedia.org/wiki/Newick_format
+sub newick_visitor
+{
+    my ( $mod, $lvl, $output_cb, $stack ) = @_;
+    while (scalar @$stack > $lvl) {
+        print pop @$stack;
+    }
+    my $lastlvl = scalar @$stack;
+    if ( $lvl == $lastlvl ) {
+        push @{$stack}, $mod->{module}.($lvl ? ')' : ';');
+        print "(";
+    } elsif ($lvl == $lastlvl-1) {
+        $stack[$lastlvl-1] = $mod->{module};
+        print(",".$mod->{module});
+    } else {
+    }
+}
+
+
 sub visit_trace
 {
-    my ( $visitor, $mod, $pos, @args ) = @_;
+    my ( $visitor, $mod, $pos ) = splice( @_, 0, 3 );
 
     my $hide = 0;
 
@@ -156,7 +176,7 @@ sub visit_trace
             $hide = exists $Module::CoreList::version{$hide_core}{$mod->{module}};
         }
 
-        $visitor->( $mod, $pos, @args ) unless $hide;
+        $visitor->( $mod, $pos, @_ ) unless $hide;
 
         $reported{$mod->{filename}}++;
     }
@@ -164,7 +184,7 @@ sub visit_trace
         $mod = { loaded => delete $loaded{$mod} };
     }
 
-    visit_trace( $visitor, $used{$_}, $hide ? $pos : $pos + 1, @args )
+    visit_trace( $visitor, $used{$_}, $hide ? $pos : $pos + 1, @_ )
         for map { $INC{$_} || $_ } @{ $mod->{loaded} };
 }
 
@@ -232,6 +252,7 @@ sub dump_result
     # output the diagnostic
     $output->("Modules used from $root:");
     visit_trace( \&show_trace_visitor, $root, 0, $output );
+    newick_visitor(undef, 0, $output, \@stack);
 
     # anything left?
     if (%loaded) {
