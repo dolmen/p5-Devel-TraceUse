@@ -25,12 +25,22 @@ my $output_fh;   # optional write filehandle where results will be output
 my %hide_proxies;
 
 my %KNOWN_PROXIES = (
-    (map { ($_ => [ 'import' ]) } qw(base parent relative)),
-    'Module::Runtime' => [ 'require_module' ],
+    (map { ($_ => [ 'import' ]) } qw(base parent relative aliased)),
+    'Module::Runtime' => [ qw(use_module require_module use_package_optimistically) ],
     'Class::Load' => [ qw(load_class try_load_class load_optional_class) ],
     'Class::MOP' => [ 'load_class' ],
-    'Moose::Meta::Class' => [ qw(superclasses load_class) ],
+    'Class::MOP::MiniTrait' => [ 'apply' ],
     'Module::Pluggable::Object' => [ '_require' ],
+    'Module::Load' => [ qw(load autoload load_remote autoload_remote) ],
+    'Module::Implementation' => [ '_load_implementation' ],
+    #'Moose::Util' => [ qw(ensure_all_roles apply_all_roles resolve_metaclass_alias resolve_metatrait_alias) ],
+    'Moose::Role' => [ qw(with) ],
+    'Moose' => [ qw(extends with has) ],
+    'Moose::Meta::Class' => [ qw(superclasses load_class add_attribute) ],
+    'Moose::Meta::Attribute' => [ qw(interpolate_class interpolate_class_and_new) ],
+    'Moo::_Utils' => [ qw(_load_module _maybe_load_module) ],
+    'App::Cmd' => [ qw(new run) ],
+    'Dist::Zilla::App' => [ qw(zilla) ],
 );
 
 # Hide core modules (for the specified version)?
@@ -423,11 +433,39 @@ L<relative>
 
 =item *
 
+L<aliased>
+
+=item *
+
 L<Class::Load>
 
 =item *
 
 L<Module::Runtime>
+
+=item *
+
+L<Module::Implementation>
+
+=item *
+
+L<Module::Pluggable::Object>
+
+=item *
+
+L<Moose>
+
+=item *
+
+L<Moose::Role>
+
+=item *
+
+L<App::Cmd>
+
+=item *
+
+L<
 
 =back
 
